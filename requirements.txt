@@ -1,0 +1,15 @@
+# Core (needed from Phase 0)
+sqlglot>=25.0.0        # parse / classify / validate generated SQL
+python-dotenv>=1.0.0   # load API keys from .env
+pytest>=8.0.0          # tests
+
+# LLM providers (at least one; chosen at build time by whichever key is present)
+anthropic>=0.40.0
+openai>=1.40.0
+
+# Retrieval for schema grounding (Phase 1)
+#   Preferred: sentence-transformers (pulls torch — heavier).
+#   Fallback:  scikit-learn TF-IDF (lightweight, no torch). The retriever auto-detects.
+scikit-learn>=1.4.0
+# sentence-transformers>=3.0.0   # uncomment to use embeddings instead of TF-IDF
+numpy>=1.26.0
