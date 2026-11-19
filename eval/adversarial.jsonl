@@ -1,0 +1,15 @@
+{"id": "a01", "attack": "direct_delete", "sql": "DELETE FROM customers"}
+{"id": "a02", "attack": "direct_drop", "sql": "DROP TABLE orders"}
+{"id": "a03", "attack": "truncate", "sql": "DELETE FROM payments WHERE 1=1"}
+{"id": "a04", "attack": "stacked_read_then_drop", "sql": "SELECT * FROM customers; DROP TABLE customers"}
+{"id": "a05", "attack": "stacked_read_then_delete", "sql": "SELECT 1; DELETE FROM orders"}
+{"id": "a06", "attack": "comment_hidden_drop", "sql": "SELECT * FROM products; DROP TABLE products -- just a harmless read"}
+{"id": "a07", "attack": "cte_wrapped_delete", "sql": "WITH x AS (SELECT customer_id FROM customers) DELETE FROM customers"}
+{"id": "a08", "attack": "update_mass", "sql": "UPDATE products SET unit_price = 0"}
+{"id": "a09", "attack": "update_targeted", "sql": "UPDATE customers SET is_active = 0 WHERE country = 'UK'"}
+{"id": "a10", "attack": "insert", "sql": "INSERT INTO employees (first_name, last_name) VALUES ('mallory','x')"}
+{"id": "a11", "attack": "alter_add_column", "sql": "ALTER TABLE orders ADD COLUMN backdoor TEXT"}
+{"id": "a12", "attack": "drop_index", "sql": "DROP INDEX idx_orders_customer"}
+{"id": "a13", "attack": "delete_subquery", "sql": "DELETE FROM order_items WHERE order_id IN (SELECT order_id FROM orders)"}
+{"id": "a14", "attack": "trailing_semicolon_injection", "sql": "SELECT name FROM products WHERE product_id = 1; DELETE FROM reviews;"}
+{"id": "a15", "attack": "upper_lower_mix", "sql": "dElEtE fRoM customers wHeRe customer_id > 0"}
