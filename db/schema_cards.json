@@ -1,0 +1,136 @@
+{
+  "tables": [
+    {
+      "table": "customers",
+      "description": "People who can place orders. Includes contact country, signup date, and whether the account is active.",
+      "columns": [
+        {"name": "customer_id", "type": "INTEGER PK", "desc": "unique customer id"},
+        {"name": "first_name", "type": "TEXT", "desc": "given name"},
+        {"name": "last_name", "type": "TEXT", "desc": "family name"},
+        {"name": "email", "type": "TEXT", "desc": "unique email address"},
+        {"name": "country", "type": "TEXT", "desc": "country, e.g. 'USA','UK','Germany'"},
+        {"name": "signup_date", "type": "TEXT", "desc": "ISO date 'YYYY-MM-DD' the customer registered"},
+        {"name": "is_active", "type": "INTEGER", "desc": "1 = active, 0 = inactive"}
+      ],
+      "joins": ["orders.customer_id = customers.customer_id", "reviews.customer_id = customers.customer_id"]
+    },
+    {
+      "table": "orders",
+      "description": "A customer's order header. Links to the customer and optionally the sales rep (employee). Has a status and order date.",
+      "columns": [
+        {"name": "order_id", "type": "INTEGER PK", "desc": "unique order id"},
+        {"name": "customer_id", "type": "INTEGER FK", "desc": "who placed the order -> customers"},
+        {"name": "employee_id", "type": "INTEGER FK", "desc": "sales rep -> employees; NULL if none"},
+        {"name": "order_date", "type": "TEXT", "desc": "ISO date the order was placed"},
+        {"name": "status", "type": "TEXT", "desc": "pending|shipped|delivered|cancelled|returned"},
+        {"name": "ship_country", "type": "TEXT", "desc": "destination country"}
+      ],
+      "joins": ["orders.customer_id = customers.customer_id", "order_items.order_id = orders.order_id", "payments.order_id = orders.order_id", "orders.employee_id = employees.employee_id"]
+    },
+    {
+      "table": "order_items",
+      "description": "Line items within an order: which product, quantity, the price captured at sale time, and a discount fraction. Revenue = quantity * unit_price * (1 - discount).",
+      "columns": [
+        {"name": "order_item_id", "type": "INTEGER PK", "desc": "unique line id"},
+        {"name": "order_id", "type": "INTEGER FK", "desc": "-> orders"},
+        {"name": "product_id", "type": "INTEGER FK", "desc": "-> products"},
+        {"name": "quantity", "type": "INTEGER", "desc": "units sold on this line"},
+        {"name": "unit_price", "type": "REAL", "desc": "price per unit at time of sale"},
+        {"name": "discount", "type": "REAL", "desc": "discount fraction 0.0-1.0"}
+      ],
+      "joins": ["order_items.order_id = orders.order_id", "order_items.product_id = products.product_id"]
+    },
+    {
+      "table": "products",
+      "description": "Catalog of products with a unit price, category, supplier, and whether it is still active (not discontinued).",
+      "columns": [
+        {"name": "product_id", "type": "INTEGER PK", "desc": "unique product id"},
+        {"name": "name", "type": "TEXT", "desc": "product name"},
+        {"name": "category_id", "type": "INTEGER FK", "desc": "-> categories"},
+        {"name": "supplier_id", "type": "INTEGER FK", "desc": "-> suppliers"},
+        {"name": "unit_price", "type": "REAL", "desc": "list price per unit"},
+        {"name": "is_active", "type": "INTEGER", "desc": "1 = active, 0 = discontinued"}
+      ],
+      "joins": ["products.category_id = categories.category_id", "products.supplier_id = suppliers.supplier_id", "order_items.product_id = products.product_id", "inventory.product_id = products.product_id", "reviews.product_id = products.product_id"]
+    },
+    {
+      "table": "categories",
+      "description": "Product categories, optionally nested via parent_id (a category can be a subcategory of another).",
+      "columns": [
+        {"name": "category_id", "type": "INTEGER PK", "desc": "unique category id"},
+        {"name": "name", "type": "TEXT", "desc": "category name, e.g. 'Electronics'"},
+        {"name": "parent_id", "type": "INTEGER FK", "desc": "parent category -> categories; NULL at top level"}
+      ],
+      "joins": ["products.category_id = categories.category_id", "categories.parent_id = categories.category_id"]
+    },
+    {
+      "table": "suppliers",
+      "description": "Companies that supply products, with their country and typical lead time in days.",
+      "columns": [
+        {"name": "supplier_id", "type": "INTEGER PK", "desc": "unique supplier id"},
+        {"name": "name", "type": "TEXT", "desc": "supplier name"},
+        {"name": "country", "type": "TEXT", "desc": "supplier country"},
+        {"name": "lead_time_days", "type": "INTEGER", "desc": "typical restock lead time; may be NULL"}
+      ],
+      "joins": ["products.supplier_id = suppliers.supplier_id"]
+    },
+    {
+      "table": "inventory",
+      "description": "Stock on hand per product: quantity available, the reorder threshold, and the warehouse. One row per product.",
+      "columns": [
+        {"name": "product_id", "type": "INTEGER PK FK", "desc": "-> products (one row each)"},
+        {"name": "quantity", "type": "INTEGER", "desc": "units currently in stock"},
+        {"name": "reorder_level", "type": "INTEGER", "desc": "restock when quantity falls below this"},
+        {"name": "warehouse", "type": "TEXT", "desc": "warehouse code: EAST|WEST|CENTRAL"}
+      ],
+      "joins": ["inventory.product_id = products.product_id"]
+    },
+    {
+      "table": "payments",
+      "description": "Payments against orders, with amount, method, paid date (NULL if unpaid), and status.",
+      "columns": [
+        {"name": "payment_id", "type": "INTEGER PK", "desc": "unique payment id"},
+        {"name": "order_id", "type": "INTEGER FK", "desc": "-> orders"},
+        {"name": "amount", "type": "REAL", "desc": "payment amount"},
+        {"name": "method", "type": "TEXT", "desc": "card|paypal|wire|gift_card"},
+        {"name": "paid_date", "type": "TEXT", "desc": "ISO date paid; NULL if not yet paid"},
+        {"name": "status", "type": "TEXT", "desc": "captured|refunded|failed"}
+      ],
+      "joins": ["payments.order_id = orders.order_id"]
+    },
+    {
+      "table": "reviews",
+      "description": "Customer product reviews with a 1-5 star rating and optional text body.",
+      "columns": [
+        {"name": "review_id", "type": "INTEGER PK", "desc": "unique review id"},
+        {"name": "product_id", "type": "INTEGER FK", "desc": "-> products"},
+        {"name": "customer_id", "type": "INTEGER FK", "desc": "-> customers"},
+        {"name": "rating", "type": "INTEGER", "desc": "1-5 stars"},
+        {"name": "review_date", "type": "TEXT", "desc": "ISO date of the review"},
+        {"name": "body", "type": "TEXT", "desc": "free-text review; may be NULL"}
+      ],
+      "joins": ["reviews.product_id = products.product_id", "reviews.customer_id = customers.customer_id"]
+    },
+    {
+      "table": "employees",
+      "description": "Sales staff, with title, hire date, and a manager_id forming an org chart (self-reference).",
+      "columns": [
+        {"name": "employee_id", "type": "INTEGER PK", "desc": "unique employee id"},
+        {"name": "first_name", "type": "TEXT", "desc": "given name"},
+        {"name": "last_name", "type": "TEXT", "desc": "family name"},
+        {"name": "title", "type": "TEXT", "desc": "job title, e.g. 'Sales Rep'"},
+        {"name": "hire_date", "type": "TEXT", "desc": "ISO hire date"},
+        {"name": "manager_id", "type": "INTEGER FK", "desc": "this employee's manager -> employees; NULL for the top"}
+      ],
+      "joins": ["orders.employee_id = employees.employee_id", "employees.manager_id = employees.employee_id"]
+    }
+  ],
+  "examples": [
+    {"question": "How many orders did each customer place?", "sql": "SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id;"},
+    {"question": "What is the total revenue per order?", "sql": "SELECT order_id, SUM(quantity * unit_price * (1 - discount)) AS revenue FROM order_items GROUP BY order_id;"},
+    {"question": "List each product with its supplier name.", "sql": "SELECT p.name, s.name FROM products p JOIN suppliers s ON p.supplier_id = s.supplier_id;"},
+    {"question": "Average review rating per product.", "sql": "SELECT product_id, AVG(rating) AS avg_rating FROM reviews GROUP BY product_id;"},
+    {"question": "Which products are below their reorder level?", "sql": "SELECT p.name, i.quantity, i.reorder_level FROM inventory i JOIN products p ON i.product_id = p.product_id WHERE i.quantity < i.reorder_level;"},
+    {"question": "Total captured payments per month in 2024.", "sql": "SELECT substr(paid_date,1,7) AS month, SUM(amount) FROM payments WHERE status='captured' AND paid_date >= '2024-01-01' AND paid_date < '2025-01-01' GROUP BY month ORDER BY month;"}
+  ]
+}
