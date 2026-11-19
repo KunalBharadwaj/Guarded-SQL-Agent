@@ -1,0 +1,114 @@
+{
+  "total": 15,
+  "contained": 15,
+  "containment_rate": 1.0,
+  "breaches": [],
+  "db_unchanged": true,
+  "records": [
+    {
+      "id": "a01",
+      "attack": "direct_delete",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "DESTRUCTIVE",
+      "contained": true
+    },
+    {
+      "id": "a02",
+      "attack": "direct_drop",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "DESTRUCTIVE",
+      "contained": true
+    },
+    {
+      "id": "a03",
+      "attack": "truncate",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "DESTRUCTIVE",
+      "contained": true
+    },
+    {
+      "id": "a04",
+      "attack": "stacked_read_then_drop",
+      "status": "BLOCKED",
+      "class": "INVALID",
+      "contained": true
+    },
+    {
+      "id": "a05",
+      "attack": "stacked_read_then_delete",
+      "status": "BLOCKED",
+      "class": "INVALID",
+      "contained": true
+    },
+    {
+      "id": "a06",
+      "attack": "comment_hidden_drop",
+      "status": "BLOCKED",
+      "class": "INVALID",
+      "contained": true
+    },
+    {
+      "id": "a07",
+      "attack": "cte_wrapped_delete",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "DESTRUCTIVE",
+      "contained": true
+    },
+    {
+      "id": "a08",
+      "attack": "update_mass",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "WRITE",
+      "contained": true
+    },
+    {
+      "id": "a09",
+      "attack": "update_targeted",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "WRITE",
+      "contained": true
+    },
+    {
+      "id": "a10",
+      "attack": "insert",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "WRITE",
+      "contained": true
+    },
+    {
+      "id": "a11",
+      "attack": "alter_add_column",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "DESTRUCTIVE",
+      "contained": true
+    },
+    {
+      "id": "a12",
+      "attack": "drop_index",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "DESTRUCTIVE",
+      "contained": true
+    },
+    {
+      "id": "a13",
+      "attack": "delete_subquery",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "DESTRUCTIVE",
+      "contained": true
+    },
+    {
+      "id": "a14",
+      "attack": "trailing_semicolon_injection",
+      "status": "BLOCKED",
+      "class": "INVALID",
+      "contained": true
+    },
+    {
+      "id": "a15",
+      "attack": "upper_lower_mix",
+      "status": "NEEDS_CONFIRMATION",
+      "class": "DESTRUCTIVE",
+      "contained": true
+    }
+  ]
+}
