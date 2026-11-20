@@ -1,8 +1,9 @@
 {
   "stage": "baseline",
-  "provider": "auto",
-  "accuracy": 0.5278,
-  "correct": 19,
+  "provider": "groq",
+  "scoring": "strict",
+  "accuracy": 0.5556,
+  "correct": 20,
   "total": 36,
   "by_difficulty": {
     "easy": {
@@ -16,12 +17,12 @@
       "total": 13
     },
     "medium": {
-      "accuracy": 0.6,
-      "correct": 9,
+      "accuracy": 0.6667,
+      "correct": 10,
       "total": 15
     }
   },
-  "elapsed_sec": 34.49,
+  "elapsed_sec": 50.95,
   "records": [
     {
       "id": "q01",
@@ -107,11 +108,11 @@
       "id": "q09",
       "difficulty": "medium",
       "question": "How many orders has each customer placed? Show customer id and the count.",
-      "pred_sql": "SELECT c.id AS customer_id, COUNT(o.id) AS order_count FROM customers c LEFT JOIN orders o ON o.customer_id = c.id GROUP BY c.id",
+      "pred_sql": "SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id",
       "gold_sql": "SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id;",
-      "correct": false,
-      "reason": "exec_error",
-      "pred_error": "OperationalError: no such column: c.id"
+      "correct": true,
+      "reason": "match",
+      "pred_error": null
     },
     {
       "id": "q10",
@@ -127,11 +128,11 @@
       "id": "q11",
       "difficulty": "medium",
       "question": "List the top 5 customers by number of orders, highest first.",
-      "pred_sql": "SELECT c.*, COUNT(o.id) AS order_count FROM customers c JOIN orders o ON o.customer_id = c.id GROUP BY c.id ORDER BY order_count DESC LIMIT 5",
+      "pred_sql": "SELECT c.*, COUNT(o.order_id) AS order_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id ORDER BY order_count DESC LIMIT 5",
       "gold_sql": "SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id ORDER BY order_count DESC, customer_id ASC LIMIT 5;",
       "correct": false,
-      "reason": "exec_error",
-      "pred_error": "OperationalError: no such column: o.id"
+      "reason": "result_mismatch",
+      "pred_error": null
     },
     {
       "id": "q12",
@@ -217,7 +218,7 @@
       "id": "q20",
       "difficulty": "medium",
       "question": "What is the total quantity sold for each product id? Show the top 10, highest first.",
-      "pred_sql": "SELECT product_id, SUM(quantity) AS total_quantity FROM order_items GROUP BY product_id ORDER BY total_quantity DESC LIMIT 10",
+      "pred_sql": "SELECT product_id, SUM(quantity) AS total_quantity_sold FROM order_items GROUP BY product_id ORDER BY total_quantity_sold DESC LIMIT 10",
       "gold_sql": "SELECT product_id, SUM(quantity) AS total_qty FROM order_items GROUP BY product_id ORDER BY total_qty DESC, product_id ASC LIMIT 10;",
       "correct": true,
       "reason": "match",
@@ -257,11 +258,11 @@
       "id": "q23b",
       "difficulty": "hard",
       "question": "List each sales rep (employee) and the name of their manager.",
-      "pred_sql": "SELECT e.employee_id, e.first_name || ' ' || e.last_name AS employee_name, m.first_name || ' ' || m.last_name AS manager_name FROM employees e LEFT JOIN employees m ON e.manager_id = m.employee_id",
+      "pred_sql": "SELECT e.employee_id, e.name AS employee_name, m.name AS manager_name FROM employees e LEFT JOIN employees m ON e.manager_id = m.employee_id",
       "gold_sql": "SELECT e.first_name || ' ' || e.last_name AS employee, m.first_name || ' ' || m.last_name AS manager FROM employees e JOIN employees m ON e.manager_id = m.employee_id;",
       "correct": false,
-      "reason": "result_mismatch",
-      "pred_error": null
+      "reason": "exec_error",
+      "pred_error": "OperationalError: no such column: e.name"
     },
     {
       "id": "q24",
@@ -277,7 +278,7 @@
       "id": "q25",
       "difficulty": "hard",
       "question": "What is the full name and total number of orders for the single customer who has placed the most orders?",
-      "pred_sql": "SELECT c.first_name || ' ' || c.last_name AS full_name, cnt.total_orders FROM (SELECT customer_id, COUNT(*) AS total_orders FROM orders GROUP BY customer_id) cnt JOIN customers c ON c.customer_id = cnt.customer_id WHERE cnt.total_orders = (SELECT MAX(total_orders) FROM (SELECT COUNT(*) AS total_orders FROM orders GROUP BY customer_id))",
+      "pred_sql": "SELECT c.first_name || ' ' || c.last_name AS full_name, cnt.order_count FROM (SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id) cnt JOIN customers c ON c.customer_id = cnt.customer_id WHERE cnt.order_count = (SELECT MAX(order_count) FROM (SELECT COUNT(*) AS order_count FROM orders GROUP BY customer_id))",
       "gold_sql": "SELECT c.first_name || ' ' || c.last_name AS name, COUNT(o.order_id) AS order_count FROM customers c JOIN orders o ON o.customer_id = c.customer_id GROUP BY c.customer_id ORDER BY order_count DESC, c.customer_id ASC LIMIT 1;",
       "correct": true,
       "reason": "match",
@@ -347,7 +348,7 @@
       "id": "q32",
       "difficulty": "medium",
       "question": "How many payments were refunded?",
-      "pred_sql": "SELECT COUNT(*) FROM payments WHERE refunded = 1",
+      "pred_sql": "SELECT COUNT(*) AS refunded_payments FROM payments WHERE refunded = 1",
       "gold_sql": "SELECT COUNT(*) FROM payments WHERE status = 'refunded';",
       "correct": false,
       "reason": "exec_error",
@@ -367,7 +368,7 @@
       "id": "q34",
       "difficulty": "hard",
       "question": "What is the average order revenue across all orders, where order revenue is the sum of quantity * unit_price * (1 - discount) of its items?",
-      "pred_sql": "SELECT AVG(order_total) AS average_order_revenue FROM (SELECT oi.order_id, SUM(oi.quantity * oi.unit_price * (1 - oi.discount)) AS order_total FROM order_items oi GROUP BY oi.order_id) sub",
+      "pred_sql": "SELECT AVG(order_total) AS average_order_revenue FROM (SELECT order_id, SUM(quantity * unit_price * (1 - discount)) AS order_total FROM order_items GROUP BY order_id) sub",
       "gold_sql": "SELECT AVG(order_revenue) FROM (SELECT order_id, SUM(quantity * unit_price * (1 - discount)) AS order_revenue FROM order_items GROUP BY order_id);",
       "correct": true,
       "reason": "match",
