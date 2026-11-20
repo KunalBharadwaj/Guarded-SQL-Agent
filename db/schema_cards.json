@@ -125,12 +125,13 @@
       "joins": ["orders.employee_id = employees.employee_id", "employees.manager_id = employees.employee_id"]
     }
   ],
+  "_fewshot_note": "These examples teach general SQL patterns over this schema (filter, join, group-by, having, order/limit, date range). They are kept DISJOINT from eval/gold.jsonl in both question and SQL, and deliberately do not reveal gold-specific constructs (the revenue formula, month bucketing, the reorder-level join, never-reviewed/never-ordered anti-joins, or the manager self-join) so the eval stays honest.",
   "examples": [
-    {"question": "How many orders did each customer place?", "sql": "SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id;"},
-    {"question": "What is the total revenue per order?", "sql": "SELECT order_id, SUM(quantity * unit_price * (1 - discount)) AS revenue FROM order_items GROUP BY order_id;"},
-    {"question": "List each product with its supplier name.", "sql": "SELECT p.name, s.name FROM products p JOIN suppliers s ON p.supplier_id = s.supplier_id;"},
-    {"question": "Average review rating per product.", "sql": "SELECT product_id, AVG(rating) AS avg_rating FROM reviews GROUP BY product_id;"},
-    {"question": "Which products are below their reorder level?", "sql": "SELECT p.name, i.quantity, i.reorder_level FROM inventory i JOIN products p ON i.product_id = p.product_id WHERE i.quantity < i.reorder_level;"},
-    {"question": "Total captured payments per month in 2024.", "sql": "SELECT substr(paid_date,1,7) AS month, SUM(amount) FROM payments WHERE status='captured' AND paid_date >= '2024-01-01' AND paid_date < '2025-01-01' GROUP BY month ORDER BY month;"}
+    {"question": "List the payment ids that were made by wire transfer.", "sql": "SELECT payment_id FROM payments WHERE method = 'wire';"},
+    {"question": "Show the review id and the email of the customer who wrote it.", "sql": "SELECT r.review_id, c.email FROM reviews r JOIN customers c ON r.customer_id = c.customer_id;"},
+    {"question": "How many employees hold each job title?", "sql": "SELECT title, COUNT(*) AS n FROM employees GROUP BY title;"},
+    {"question": "List the 3 cheapest active products by name and price.", "sql": "SELECT name, unit_price FROM products WHERE is_active = 1 ORDER BY unit_price ASC LIMIT 3;"},
+    {"question": "How many customers signed up before 2023?", "sql": "SELECT COUNT(*) FROM customers WHERE signup_date < '2023-01-01';"},
+    {"question": "Which suppliers supply more than 3 products? Show supplier id and the count.", "sql": "SELECT supplier_id, COUNT(*) AS n FROM products GROUP BY supplier_id HAVING COUNT(*) > 3;"}
   ]
 }
