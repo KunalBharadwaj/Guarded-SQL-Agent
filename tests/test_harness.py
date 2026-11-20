@@ -54,6 +54,19 @@ def test_has_order_by_ignores_string_literals():
     assert has_order_by("SELECT 'order by x' AS note FROM t") is False
 
 
+def test_has_order_by_only_counts_top_level():
+    # Regression: ORDER BY in a window function or subquery must NOT count.
+    assert has_order_by(
+        "SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn FROM t") is False
+    assert has_order_by(
+        "SELECT * FROM (SELECT id FROM t ORDER BY id) sub") is False
+    assert has_order_by(
+        "SELECT * FROM (SELECT id FROM t ORDER BY id) sub ORDER BY id") is True
+    # CTE body ordering is nested; only the outer query's ORDER BY is top-level.
+    assert has_order_by(
+        "WITH x AS (SELECT id FROM t ORDER BY id) SELECT * FROM x") is False
+
+
 def test_result_sets_match_multiset():
     assert result_sets_match([(1,), (1,), (2,)], [(1,), (2,), (1,)], ordered=False)
     assert not result_sets_match([(1,), (1,)], [(1,)], ordered=False)

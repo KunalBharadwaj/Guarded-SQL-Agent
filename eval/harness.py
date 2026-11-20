@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import sqlglot
 from collections import Counter
 from dataclasses import dataclass
 from itertools import permutations
@@ -49,7 +50,21 @@ def _norm_rows(rows: list[tuple]) -> list[tuple]:
 
 
 def has_order_by(sql: str) -> bool:
-    # Strip string literals so an ORDER BY inside a string doesn't count.
+    """True only for a TOP-LEVEL ORDER BY.
+
+    Row order is significant only when the outermost query is explicitly ordered.
+    An ORDER BY inside a subquery or a window function (`... OVER (ORDER BY ...)`)
+    does not make the result set ordered, so those must not count. We parse with
+    sqlglot and inspect the root expression's own `order` clause; a raw-regex scan
+    (the previous approach) matched those nested clauses and scored unordered gold
+    queries order-sensitively. Fall back to the regex only if parsing fails.
+    """
+    try:
+        expr = sqlglot.parse_one(sql, read="sqlite")
+    except Exception:  # noqa: BLE001 — unparseable SQL: fall back to the coarse scan
+        expr = None
+    if expr is not None:
+        return expr.args.get("order") is not None
     stripped = re.sub(r"'(?:[^']|'')*'", "''", sql)
     return bool(_ORDER_BY_RE.search(stripped))
 
