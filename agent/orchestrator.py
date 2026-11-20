@@ -68,7 +68,9 @@ class Agent:
                 action_class=decision.action_class.value,
                 message=f"Blocked: {decision.reason}"))
 
-        # 4) Reads: confidence-gate, then return the already-executed result.
+        # 4) Reads: confidence-gate, then return the rows the loop already fetched.
+        #    The loop executed this SELECT on a read-only connection; re-running it
+        #    through the executor would be a second, identical query for no gain.
         if decision.is_read:
             assessment = confidence.assess_query(top, loop.success, loop.attempts)
             if assessment.escalate:
@@ -77,14 +79,14 @@ class Agent:
                     confidence=assessment.score, attempts=loop.attempts,
                     action_class=decision.action_class.value,
                     message=f"Escalating: {assessment.reason}. {assessment.clarify}"))
-            out = run_action(loop.sql, self.db_path)  # read-only execution via the gate
-            if out.status is Status.ERROR:
+            if loop.error is not None:
                 return self._finalize(AgentResponse(
                     ResponseStatus.ERROR, question, sql=loop.sql,
-                    action_class=decision.action_class.value, message=out.error))
+                    action_class=decision.action_class.value, message=loop.error))
+            rows = loop.rows or []
             return self._finalize(AgentResponse(
-                ResponseStatus.ANSWERED, question, sql=loop.sql, rows=out.rows,
-                rowcount=out.rowcount, confidence=assessment.score,
+                ResponseStatus.ANSWERED, question, sql=loop.sql, rows=rows,
+                rowcount=len(rows), confidence=assessment.score,
                 attempts=loop.attempts, action_class=decision.action_class.value,
                 message="OK"))
 

@@ -27,6 +27,8 @@ class LoopResult:
     success: bool                      # executed without error and returned rows
     is_read: bool
     rationale: str = ""
+    rows: list | None = None           # rows from the last read execution (reused downstream)
+    error: str | None = None           # SQL error from the last read execution, if any
     history: list[dict] = field(default_factory=list)  # per failed attempt
 
 
@@ -72,6 +74,9 @@ def correct_loop(
             res = run_sql(conn, gen.sql)
         finally:
             conn.close()
+
+        last.rows = res.rows            # carry the executed rows so callers need not re-run
+        last.error = res.error
 
         if res.ok and res.rows:
             last.success = True
