@@ -1,124 +1,131 @@
-# Guarded NL-to-Action Agent
+# Guarded SQL Agent
 
-Turn a natural-language question into a **correct, safe** SQL action against a realistic
-business database. The agent grounds on the real schema, self-corrects when a query fails,
-and routes **every** action through a safety gate — reads run read-only, mutations are held
-for human confirmation, and ambiguous requests escalate instead of guessing.
+A natural-language-to-SQL agent for an uncooperative production database. It grounds
+generation in the real schema, repairs failed queries from execution feedback, and routes
+every generated statement through a safety gate: reads run read-only, mutations are withheld
+for explicit human confirmation, and ambiguous requests are deferred rather than guessed.
 
-> **Headline:** _N% execution accuracy on held-out queries, with 100% of destructive
-> operations gated behind human confirmation._ (Accuracy is filled in once an LLM key is set
-> — see status below.)
+The design targets two independent guarantees: competitive execution accuracy, and zero
+unconfirmed destructive operations.
 
-## The problem
+## Problem
 
-Naive "write SQL for X" prompting fails on real databases: it hallucinates columns, botches
-joins, and can emit destructive statements (`DELETE`, `DROP`). That's two failures at once —
-**wrong** and **dangerous**. This project fixes both:
+Single-shot "generate SQL for X" prompting degrades sharply on a non-trivial schema. It
+hallucinates columns, mis-specifies joins, and will readily emit `DELETE` / `DROP` / `UPDATE`
+against live data. Those are two distinct failure modes, correctness and safety, and each has
+to be handled on its own terms.
 
-1. **Schema grounding (RAG)** — retrieve only the relevant tables + a few examples; don't
-   dump the whole schema.
-2. **Execution-based self-correction** — run the query, feed the error back, let the model fix
-   it (capped retries).
-3. **Guardrails** — parse with `sqlglot`, classify read / write / destructive, execute
-   read-only by default, require explicit confirmation for anything that writes.
-4. **Confidence gating** — escalate to a human when the request is ambiguous or the blast
-   radius is large.
+Four mechanisms, ordered by leverage:
+
+1. **Schema grounding (retrieval).** The model cannot know the schema a priori, so the
+   relevant tables, columns, and a few exemplar queries are retrieved into the prompt rather
+   than dumping the full DDL. This is the dominant accuracy lever and the cheapest to add.
+2. **Execution-based self-correction.** Execute the candidate, capture the failure (a SQL
+   error or an empty result), and feed it back for a bounded number of repair attempts.
+3. **Guardrails.** Parse each statement with `sqlglot`, classify it at the AST level as
+   read / write / destructive, execute reads through a read-only connection, and require
+   explicit confirmation for anything that mutates.
+4. **Confidence gating.** When retrieval similarity is low (an ambiguous request) or a
+   mutation's blast radius is large, escalate to a human instead of executing.
 
 ## Architecture
 
 ```
-NL request ─► Schema retriever ─► Generate SQL ─► Validate + gate ──► safe read ──► Execute
-                                        ▲                         └─► needs confirm ─► Human confirm
-                                        └──────── retry on error ◄── (self-correction loop)
+NL request ─► schema retriever ─► generate SQL ─► classify + gate ──► read  ──► execute (read-only)
+                                       ▲                          └──► mutation ─► dry-run ─► human confirm
+                                       └──────── execution error ◄──── self-correction loop
 ```
 
-Every generated action is parsed and classified **before** it runs. Reads execute on a
-physically read-only connection; mutations are dry-run inside a rolled-back transaction
-(verifying them and measuring blast radius) and never committed without confirmation.
+Classification precedes execution unconditionally. Reads run on a physically read-only SQLite
+connection, so writes are rejected by the driver independently of the classifier. Mutations
+are validated by a transactional dry-run that is rolled back, which both confirms
+executability and measures blast radius, and are never committed without an explicit
+confirmation flag. The result is defense in depth: a misclassified statement still cannot
+mutate state on the read path.
 
-## Metrics (per stage)
+## Results
 
-Model: `openai/gpt-oss-120b` via Groq (free tier). Full held-out set of 36 queries, 0 API errors.
+Model `openai/gpt-oss-120b` (Groq, free tier). Held-out set of 36 question/gold-SQL pairs over
+a ten-table schema. Full-set run, no API failures.
 
-| Stage | Strict | Lenient | Notes |
-|-------|-------:|--------:|-------|
-| Baseline (table names only)      | 52.8% (19/36) | 52.8% | naive prompt, the problem statement |
-| Grounded (schema retrieval)      | **83.3% (30/36)** | **91.7% (33/36)** | the big accuracy lever |
-| Grounded + self-correction       | 83.3% (30/36) | 91.7% (33/36) | see note |
-| **Destructive-op containment**   | **100% (15/15)** | — | gate vs adversarial attacks |
+| Stage | Strict | Lenient |
+|-------|-------:|--------:|
+| Baseline (table names only) | 52.8% (19/36) | 52.8% (19/36) |
+| Grounded (schema retrieval) | 83.3% (30/36) | 91.7% (33/36) |
+| Grounded + self-correction  | 83.3% (30/36) | 91.7% (33/36) |
+| Destructive-op containment  | 100% (15/15)  | — |
 
-**Schema grounding is the big lever: 52.8% → 83.3% (strict).**
+Retrieval grounding is the decisive lever, +30.5 points strict over the baseline.
 
-**Two scoring modes.** *Strict* requires an exact result-set match. *Lenient* additionally
-accepts an **extra-column projection** — the gold's columns appearing as a subset of the
-prediction's (e.g. `SELECT *` instead of the two requested columns) — by projecting the
-predicted rows onto a column subset and comparing row-for-row. It forgives only extra columns,
-never wrong rows: a missing `WHERE` changes the rows and still fails (see
-`tests/test_harness.py`). Three grounded misses were pure projections (now pass); the three
-that remain are genuine row/value differences, not projection. Re-score any saved run offline
-with `python eval/rescore.py` (no API calls).
+**Scoring.** Strict scoring requires result-set equivalence: the row multiset must match,
+order-sensitive only when the gold query is itself ordered. Lenient scoring additionally
+tolerates over-projection by accepting a prediction when the gold columns appear as an ordered
+sub-tuple of the predicted rows (project the predicted rows onto a column subset, then compare
+to the gold multiset). This forgives `SELECT *` in place of two named columns while still
+rejecting an incorrect row set, since a missing predicate or a bad join changes the projected
+tuples. Three grounded misses are pure over-projection and clear under lenient scoring; the
+remaining three are genuine row- or value-level differences and stay failed.
 
-**Self-correction** adds no lift here because the remaining misses are result *mismatches*,
-not execution errors/empties — and execution-based correction only retries those. The loop's
-recovery mechanism is verified directly in `tests/test_self_correction.py`.
+**Self-correction** contributes no lift on this run. The residual failures are semantic result
+mismatches, not execution errors or empty results, and those are the only signals an
+execution-driven loop can act on. The repair path itself is exercised directly in
+`tests/test_self_correction.py`.
 
-Safety containment is fully measured: `python eval/safety_eval.py` shows no destructive op
-executes unconfirmed.
+**Safety** is measured, not asserted. `eval/safety_eval.py` replays fifteen adversarial
+payloads (direct `DELETE`/`DROP`, stacked injection, CTE-wrapped deletes, case obfuscation)
+and verifies that none execute unconfirmed and that row counts are unchanged afterward.
 
-Headline: **83.3% strict / 91.7% lenient execution accuracy on held-out queries, with 100% of
-destructive operations gated behind human confirmation.**
-
-## Run it
+## Running it
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-python db/build_db.py                       # build & seed db/guarded.db  (no key needed)
-pytest -q                                   # safety + harness + retriever tests (no key needed)
+python db/build_db.py                     # build and seed db/guarded.db (no key needed)
+pytest -q                                  # 63 tests (no key needed)
 
-cp .env.example .env                        # add GROQ_API_KEY (or another provider)
-python eval/run_eval.py --stage baseline    # baseline accuracy
-python eval/run_eval.py --stage grounded    # accuracy with schema grounding
+cp .env.example .env                       # set GROQ_API_KEY, or another provider
+python eval/run_eval.py --stage baseline
+python eval/run_eval.py --stage grounded
 
-python cli.py "how many orders were cancelled?"                               # a guarded read
+python cli.py "how many orders were cancelled?"                               # guarded read
 python cli.py --decompose "which customers placed more orders than average?"  # multi-step
-python cli.py --audit                                                         # the audit trail
+python cli.py --audit                                                         # audit trail
 ```
 
-No key handy? Lots is verifiable offline:
-- `python eval/run_eval.py --stage baseline --provider oracle` — scores gold-vs-gold (100%), proving the scorer.
-- `python eval/safety_eval.py` — adversarial attacks, 100% containment.
-- `python eval/rescore.py` — re-grade saved predictions strict vs lenient, no API calls.
-- `python demo_backends.py` — the same gate governing SQL **and** a mock API backend.
+Much of the system is verifiable with no API key:
 
-## Scope
+- `python eval/run_eval.py --stage baseline --provider oracle` grades the gold set against
+  itself (100%), validating the scorer end to end.
+- `python eval/safety_eval.py` runs the adversarial suite and reports containment.
+- `python eval/rescore.py` re-grades saved predictions under strict and lenient scoring.
+- `python demo_backends.py` shows the same gate governing both the SQL backend and a mock API.
 
-**In:** NL→SQL over a non-trivial schema, retrieval grounding, execute-fix loop, read-only +
-confirmation guardrails, execution-accuracy eval (strict + lenient), confidence/escalation,
-multi-step decomposition for complex questions, a second (API) backend.
+## Providers
 
-**Out:** training a text-to-SQL model; supporting every SQL dialect; a full BI tool.
+The LLM client is provider-agnostic over an OpenAI-compatible surface. Groq, Cerebras,
+OpenRouter, OpenAI, and Anthropic are supported. The active provider is set by
+`GUARDED_LLM_PROVIDER` or inferred from whichever API key is present; transient 429 and 5xx
+responses are retried with exponential backoff.
 
 ## Layout
 
 ```
-agent/   retriever, generator, guardrails, executor, self-correction, decomposition, confidence, audit, orchestrator, llm, backends/
-db/      schema.sql, seed.py, schema_cards.json (RAG corpus), build_db.py
-eval/    gold.jsonl, adversarial.jsonl, harness.py, run_eval.py
-results/ per-stage reports + audit log
-tests/   guardrails / harness / executor / retriever
+agent/   llm, retriever, generator, guardrails, executor, self_correction,
+         decomposition, confidence, audit, orchestrator, backends/{base,sql,api}
+db/      schema.sql, seed.py, build_db.py, schema_cards.json (retrieval corpus)
+eval/    harness.py, run_eval.py, rescore.py, safety_eval.py, gold.jsonl, adversarial.jsonl
+tests/   harness, guardrails, executor, retriever, self_correction,
+         orchestrator, api_backend, decomposition  (63 tests)
+results/ per-stage reports and the demo audit log
 ```
 
-## Status — all phases complete
+## Scope
 
-- **Phase 0 (baseline + eval harness):** done. Baseline 52.8%.
-- **Phase 1 (schema grounding):** done. **52.8% → 83.3%** on the full held-out set.
-- **Phase 2 (self-correction + guardrails):** done — guardrails, executor, self-correction
-  loop, audit log, orchestrator, adversarial safety eval (**100% containment**).
-- **Phase 3 (confidence + second backend):** done — confidence gating + escalation, CLI with
-  live audit trail, multi-step decomposition for complex questions, and a second (API) backend
-  proving the gate isn't SQL-specific.
+In scope: NL-to-SQL over a non-trivial schema, retrieval grounding, the self-correction loop,
+read-only and confirmation guardrails, execution-accuracy evaluation (strict and lenient),
+confidence-based escalation, multi-step decomposition, and a second backend (a mock API) to
+show the gate is not SQL-specific.
 
-63 tests pass (`pytest -q`). Numbers above are from a clean full-set run on Groq's free tier.
-The only unbuilt stretch item is a browser chat UI (the CLI covers the same flow).
+Out of scope: training a text-to-SQL model, supporting every SQL dialect, and building a full
+BI tool.
