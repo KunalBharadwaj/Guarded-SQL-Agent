@@ -123,5 +123,8 @@ def solve(client: LLMClient, retriever: SchemaRetriever, question: str,
     finally:
         conn.close()
 
-    result.success = result.final_rows is not None
+    # Success requires every step to have executed and returned rows. Reaching here
+    # already guarantees no step errored (errors return early), but a step that ran
+    # cleanly yet produced zero rows is a non-answer, not a success.
+    result.success = bool(result.steps) and all(st.ok for st in result.steps)
     return result

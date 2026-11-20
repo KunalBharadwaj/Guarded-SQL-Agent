@@ -67,6 +67,18 @@ def test_dependent_two_step_chain():
     assert res.success is True and res.final_rows
 
 
+def test_zero_row_final_step_is_not_reported_success():
+    # Regression: a step that runs cleanly but returns no rows is a non-answer.
+    client = ScriptClient(
+        plan_steps=["customers in a non-existent country"],
+        step_sqls=["SELECT * FROM customers WHERE 1 = 0"],
+    )
+    res = solve(client, SchemaRetriever(), "customers in Atlantis")
+    assert res.final_rows == []
+    assert res.steps[-1].ok is False
+    assert res.success is False          # must not claim success on an empty result
+
+
 def test_mutation_in_a_step_stops_the_chain():
     client = ScriptClient(
         plan_steps=["step one", "delete everything"],
