@@ -22,24 +22,55 @@ class LLMError(RuntimeError):
 # 402 in-flight credit-reservation hiccup ("retry after in-flight requests settle").
 _RETRYABLE_STATUS = {402, 429, 500, 502, 503, 504}
 
+# Transient network failures carry no HTTP status but are just as retryable. Match by
+# class name (across the MRO) so we don't have to import httpx / the SDK error types.
+_RETRYABLE_EXC_NAMES = {
+    "APIConnectionError", "APITimeoutError",            # openai / anthropic SDKs
+    "ConnectError", "ConnectTimeout", "ReadTimeout",    # httpx
+    "WriteTimeout", "PoolTimeout", "TimeoutException", "RemoteProtocolError",
+}
+
 
 def _status_code(exc: Exception) -> int | None:
     return getattr(exc, "status_code", None) or getattr(exc, "code", None)
 
 
+def _is_transient(exc: Exception) -> bool:
+    if _status_code(exc) in _RETRYABLE_STATUS:
+        return True
+    return bool({cls.__name__ for cls in type(exc).__mro__} & _RETRYABLE_EXC_NAMES)
+
+
 def with_retry(fn):
-    """Retry a provider call with exponential backoff on transient errors."""
+    """Retry a provider call with exponential backoff on transient errors.
+
+    Retries both retryable HTTP statuses (429/5xx/402) and connection/timeout errors,
+    which carry no status code yet are the most common transient failure.
+    """
     last = None
     for attempt in range(config.LLM_API_RETRIES + 1):
         try:
             return fn()
         except Exception as e:  # noqa: BLE001
-            status = _status_code(e)
-            if status not in _RETRYABLE_STATUS or attempt == config.LLM_API_RETRIES:
+            if not _is_transient(e) or attempt == config.LLM_API_RETRIES:
                 raise
             last = e
             time.sleep(config.LLM_BACKOFF_BASE ** attempt)
     raise last  # pragma: no cover
+
+
+def with_model_fallback(primary: str, fallback: str | None, call):
+    """Run `call(model)` on the primary model; on failure, try the fallback once.
+
+    `call` already wraps its request in `with_retry`, so this only engages after the
+    primary has exhausted its transient retries (or failed hard, e.g. a retired model).
+    """
+    try:
+        return call(primary)
+    except Exception:  # noqa: BLE001
+        if not fallback or fallback == primary:
+            raise
+        return call(fallback)
 
 
 class LLMClient(ABC):
@@ -53,7 +84,7 @@ class LLMClient(ABC):
 class AnthropicClient(LLMClient):
     name = "anthropic"
 
-    def __init__(self, model: str | None = None):
+    def __init__(self, model: str | None = None, fallback_model: str | None = None):
         try:
             import anthropic
         except ImportError as e:  # pragma: no cover
@@ -62,15 +93,22 @@ class AnthropicClient(LLMClient):
             raise LLMError("ANTHROPIC_API_KEY is not set")
         self._client = anthropic.Anthropic()
         self.model = model or config.ANTHROPIC_MODEL
+        self.fallback_model = fallback_model or config.ANTHROPIC_FALLBACK_MODEL
 
-    def complete(self, system: str, user: str) -> str:
-        msg = with_retry(lambda: self._client.messages.create(
-            model=self.model,
+    def _create(self, model: str, system: str, user: str):
+        return with_retry(lambda: self._client.messages.create(
+            model=model,
             max_tokens=config.LLM_MAX_TOKENS,
             temperature=config.LLM_TEMPERATURE,
             system=system,
             messages=[{"role": "user", "content": user}],
         ))
+
+    def complete(self, system: str, user: str) -> str:
+        # Fall back to the secondary model if the primary fails (e.g. a retired model id).
+        msg = with_model_fallback(
+            self.model, self.fallback_model,
+            lambda model: self._create(model, system, user))
         return "".join(block.text for block in msg.content if block.type == "text")
 
 
