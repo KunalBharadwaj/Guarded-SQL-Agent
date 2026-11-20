@@ -43,6 +43,16 @@ def test_post_needs_confirmation_then_commits(api):
     assert out.result["id"] == 4                      # dry-run did not consume the id
 
 
+def test_two_posts_get_distinct_ids_and_both_persist(api):
+    # Regression: POST must consume the id so a second create can't overwrite the first.
+    a = api.run(ApiCall("POST", "/tickets", {"subject": "first"}), confirmed=True)
+    b = api.run(ApiCall("POST", "/tickets", {"subject": "second"}), confirmed=True)
+    assert a.result["id"] == 4 and b.result["id"] == 5     # distinct, not reused
+    assert len(api._store["tickets"]) == 5                  # neither record was clobbered
+    assert api._store["tickets"][4]["subject"] == "first"
+    assert api._store["tickets"][5]["subject"] == "second"
+
+
 def test_delete_one_is_gated(api):
     out = api.run(ApiCall("DELETE", "/tickets/1"))
     assert out.status is Status.NEEDS_CONFIRMATION

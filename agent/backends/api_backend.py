@@ -108,6 +108,7 @@ class ApiBackend:
             rec = dict(action.body or {})
             rec["id"] = self._next_id
             coll[self._next_id] = rec
+            self._next_id += 1          # consume the id so the next POST gets a fresh one
             return 1, rec
         if method in ("PUT", "PATCH"):
             if ident is None or ident not in coll:
