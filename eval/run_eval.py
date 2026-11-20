@@ -70,6 +70,21 @@ def _predict_fn(stage: str, provider: str):
     raise SystemExit(f"unknown stage {stage!r}")
 
 
+def resolve_provider_name(provider: str, client_factory=None) -> str:
+    """Map the CLI's 'auto' to the concrete backend that will actually run.
+
+    'oracle' and 'stub' are passed through; anything else means the real LLM path,
+    so we report the resolved backend (e.g. 'groq') instead of the literal 'auto',
+    which otherwise makes every saved report ambiguous about which model produced it.
+    """
+    if provider in ("oracle", "stub"):
+        return provider
+    if client_factory is None:
+        from agent.llm import get_client
+        client_factory = get_client
+    return client_factory().name
+
+
 def run(stage: str, provider: str, lenient: bool = False) -> dict:
     gold = load_gold()
     predict = _predict_fn(stage, provider)
@@ -130,7 +145,7 @@ def main() -> None:
                     help="accept extra-column projections (gold columns ⊆ predicted columns)")
     args = ap.parse_args()
 
-    provider = args.provider if args.provider != "auto" else "auto"
+    provider = resolve_provider_name(args.provider)
     report = run(args.stage, provider, lenient=args.lenient)
 
     out = Path(args.out) if args.out else config.RESULTS_DIR / f"{args.stage}.json"
